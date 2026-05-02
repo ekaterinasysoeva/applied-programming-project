@@ -242,3 +242,13 @@ def get_notes_by_tag(tag_name: str) -> list[Note]:
             filtered.append(note)
     
     return filtered
+
+@app.get("/notes")
+def list_notes(
+    category: str = None,
+    search: str = None,
+    tag: str = None
+):
+    # Already implemented today!
+    # Test that ALL three work together
+    pass
