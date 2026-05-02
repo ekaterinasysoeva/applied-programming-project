@@ -1,0 +1,12 @@
+[
+  {
+    "id": 2,
+    "title": "string",
+    "content": "string",
+    "category": "string",
+    "tags": [
+      "wrewer"
+    ],
+    "created_at": "2026-04-30T11:35:46.768817+00:00"
+  }
+]
