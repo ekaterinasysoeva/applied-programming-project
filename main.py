@@ -136,9 +136,9 @@ def calculate_double(number: int):
 
 @app.get("/")
 def root():
-    return {"message": "Hello, World!"}
+    return {"message": "Hello World"}
 
-@app.get("/name/{name}")
+@app.get("/greet/{name}")
 def greet_name(name: str):
     return {"message": f"Hello, {name}!"}
 
@@ -292,5 +292,15 @@ def list_categories(session: SessionDep) -> list[str]:
 def get_notes_by_category(category_name: str, session: SessionDep) -> list[NoteResponse]:
     """Get all notes in a specific category"""
     notes = session.exec(select(Note).where(Note.category == category_name)).all()
+    return [note_to_response(n) for n in notes]
+
+
+
+@app.get("/notes/category/{category}")
+def get_notes_by_category(category: str, session: SessionDep):
+    notes = session.exec(
+        select(Note).where(Note.category == category)
+    ).all()
+
     return [note_to_response(n) for n in notes]
 
