@@ -140,7 +140,7 @@ def root():
 
 @app.get("/greet/{name}")
 def greet_name(name: str):
-    return {"greeting": f"Hello, {name}!"}
+    return {"greeting": f"Hello {name}!"}
 
 @app.get("/number/{number}")
 def calculate(number: int):
