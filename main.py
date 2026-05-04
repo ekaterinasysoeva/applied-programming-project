@@ -249,7 +249,20 @@ def list_notes(
     search: str = None,
     tag: str = None
 ):
-    # Already implemented today!
-    # Test that ALL three work together
-    pass
+    notes_db, _ = load_notes()
 
+    filtered_notes = notes_db
+
+    if category:
+        filtered_notes = [n for n in filtered_notes if n.category == category]
+
+    if search:
+        filtered_notes = [
+            n for n in filtered_notes
+            if search.lower() in n.title.lower() or search.lower() in n.content.lower()
+        ]
+
+    if tag:
+        filtered_notes = [n for n in filtered_notes if tag in n.tags]
+
+    return filtered_notes
