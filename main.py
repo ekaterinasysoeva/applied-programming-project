@@ -313,3 +313,40 @@ def get_notes_by_category(category_name: str) -> list[Note]:
     result = [n for n in notes_db if n.category == category_name]
 
     return result
+
+
+
+from typing import Optional
+
+class NoteUpdate(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+    category: Optional[str] = None
+    tags: Optional[list[str]] = None
+
+
+@app.patch("/notes/{note_id}")
+def partial_update_note(note_id: int, note_update: NoteUpdate) -> Note:
+    notes_db, _ = load_notes()
+
+    for i, note in enumerate(notes_db):
+        if note.id == note_id:
+
+            if note_update.title is not None:
+                note.title = note_update.title
+
+            if note_update.content is not None:
+                note.content = note_update.content
+
+            if note_update.category is not None:
+                note.category = note_update.category
+
+            if note_update.tags is not None:
+                note.tags = note_update.tags
+
+            notes_db[i] = note
+            save_notes(notes_db)
+
+            return note
+
+    raise HTTPException(status_code=404, detail="Note not found")
