@@ -1,14 +1,138 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
+from sqlmodel import SQLModel, Field, Session, create_engine, Relationship, select, or_, col
 from datetime import datetime, timezone
-import json
-from pathlib import Path
+from collections import Counter
+from typing import Optional, Annotated
+
+
+class NoteTagLink(SQLModel, table=True):
+    """Link table for many-to-many: Note <-> Tag"""
+    note_id: Optional[int] = Field(default=None, foreign_key="notes.id", primary_key=True)
+    tag_id: Optional[int] = Field(default=None, foreign_key="tags.id", primary_key=True)
+
+
+class Note(SQLModel, table=True):
+    __tablename__ = "notes"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    title: str
+    content: str
+    category: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    tags: list["Tag"] = Relationship(back_populates="notes", link_model=NoteTagLink)
+
+
+class Tag(SQLModel, table=True):
+    __tablename__ = "tags"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(unique=True, index=True)
+
+    notes: list[Note] = Relationship(back_populates="tags", link_model=NoteTagLink)
+
+
+
+engine = create_engine("sqlite:///notes.db")
+SQLModel.metadata.create_all(engine)
+
+
+def get_session():
+    with Session(engine) as session:
+        yield session
+
+SessionDep = Annotated[Session, Depends(get_session)]
+
+
+class NoteCreate(BaseModel):
+    title: str
+    content: str
+    category: str
+    tags: list[str] = []
+
+class NoteUpdate(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+    category: Optional[str] = None
+    tags: Optional[list[str]] = None
+
+class NoteResponse(BaseModel):
+    id: int
+    title: str
+    content: str
+    category: str
+    tags: list[str]
+    created_at: str
+
+    class Config:
+        from_attributes = True
+
+
 
 app = FastAPI(
     title="Note Taking API",
     description="Simple note management",
-    version="1.0.0"
+    version="2.0.0"
 )
+
+
+def note_to_response(note: Note) -> NoteResponse:
+    """Convert DB Note object to NoteResponse"""
+    return NoteResponse(
+        id=note.id,
+        title=note.title,
+        content=note.content,
+        category=note.category,
+        tags=[tag.name for tag in note.tags],
+        created_at=note.created_at.isoformat()
+    )
+
+def get_or_create_tags(session: Session, tag_names: list[str]) -> list[Tag]:
+    """Find existing tags or create new ones"""
+    tag_objects = []
+    seen = set()
+    for name in tag_names:
+        name_lower = name.lower().strip()
+        if not name_lower or name_lower in seen:
+            continue
+        seen.add(name_lower)
+        existing = session.exec(select(Tag).where(Tag.name == name_lower)).first()
+        if existing:
+            tag_objects.append(existing)
+        else:
+            new_tag = Tag(name=name_lower)
+            session.add(new_tag)
+            tag_objects.append(new_tag)
+    return tag_objects
+
+
+@app.get("/square/{number}")
+def calculate_square(number: int):
+    result = number * number
+    return {
+        "number": number,
+        "square": result,
+        "calculation": f"{number} × {number} = {result}"
+    }
+
+@app.get("/student")
+def get_student():
+    return {
+        "name": "Ekaterina Sysoeva",
+        "semester": 1,
+        "course": "Wirtschaftsinformatik",
+        "university": "Hochschule Coburg"
+    }
+
+@app.get("/double/{number}")
+def calculate_double(number: int):
+    result = number * 2
+    return {
+        "number": number,
+        "double": result,
+        "calculation": f"{number} × 2 = {result}"
+    }
 
 @app.get("/")
 def root():
@@ -19,334 +143,154 @@ def greet_name(name: str):
     return {"message": f"Hello, {name}!"}
 
 @app.get("/number/{number}")
-def calculate(number: str):
-    return {"message": (number*2)}
+def calculate(number: int):
+    return {"message": number * 2}
 
 
-####################################
-### Note API Endpoints (Day 2)
-####################################
-
-class NoteCreate(BaseModel):
-    title: str
-    content: str
-    category: str
-    tags: list[str] = []
-
-class Note(BaseModel):
-    id: int
-    title: str
-    content: str
-    category: str
-    tags: list[str] = []
-    created_at: str
-
-NOTES_FILE = Path("data/notes.json")
-
-def load_notes():
-    """Load notes from JSON file and return notes list and next ID counter"""
-    notes_db = []
-    note_id_counter = 1
-
-    if NOTES_FILE.exists():
-        with open(NOTES_FILE, 'r') as f:
-            data = json.load(f)
-            notes_db = [Note(**note) for note in data]
-
-            # Set counter to max ID + 1
-            if notes_db:
-                note_id_counter = max(note.id for note in notes_db) + 1
-
-    return notes_db, note_id_counter
-
-
-def save_notes(notes_db):
-    """Save notes to JSON file after each change"""
-    # Ensure data directory exists
-    NOTES_FILE.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(NOTES_FILE, 'w') as f:
-        # Convert Note objects to dicts
-        notes_data = [note.dict() for note in notes_db]
-        json.dump(notes_data, f, indent=2)
 
 @app.post("/notes", status_code=201)
-def create_note(note: NoteCreate) -> Note:
+def create_note(note: NoteCreate, session: SessionDep) -> NoteResponse:
     """Create a new note"""
-    notes_db, note_id_counter = load_notes()
-
-    new_note = Note(
-        id=note_id_counter,
+    db_note = Note(
         title=note.title,
         content=note.content,
-        category=note.category,
-        tags=note.tags,
-        created_at=datetime.now(timezone.utc).isoformat()
+        category=note.category
     )
-    notes_db.append(new_note)
-    save_notes(notes_db)
+    db_note.tags = get_or_create_tags(session, note.tags)
+    session.add(db_note)
+    session.commit()
+    session.refresh(db_note)
+    return note_to_response(db_note)
 
-    return new_note
+
 
 @app.get("/notes/stats")
-def get_notes_stats():
+def get_note_stats(session: SessionDep):
     """Get statistics about notes"""
-    
-    notes_db, _ = load_notes()
-    # Count by category
-    categories = {}
-    for note in notes_db:
-        if note.category in categories:
-            categories[note.category] += 1
-        else:
-            categories[note.category] = 1
-    
+    notes = session.exec(select(Note)).all()
+    all_tags = [tag.name for note in notes for tag in note.tags]
+    tag_counter = Counter(all_tags)
     return {
-        "total_notes": len(notes_db),
-        "by_category": categories
+        "total_notes": len(notes),
+        "by_category": dict(Counter(n.category for n in notes)),
+        "top_tags": [{"tag": t, "count": c} for t, c in tag_counter.most_common(5)],
+        "unique_tags_count": len(set(all_tags))
     }
 
 @app.get("/notes")
 def list_notes(
+    session: SessionDep,
     category: str = None,
     search: str = None,
-    tag: str = None
-) -> list[Note]:
-    """
-    List notes with optional filters
-    
-    - category: Filter by category
-    - search: Search in title and content
-    - tag: Filter by tag
-    """
-    notes_db, _ = load_notes()
-    
-    # Apply filters
-    filtered = []
-    for note in notes_db:
-        # Filter by category
-        if category and note.category != category:
-            continue
-        
-        # Filter by search term
-        if search:
-            search_lower = search.lower()
-            title_match = search_lower in note.title.lower()
-            content_match = search_lower in note.content.lower()
-            if not (title_match or content_match):
-                continue
-        
-        # Filter by tag
-        if tag and tag not in note.tags:
-            continue
-        
-        filtered.append(note)
-    
-    return filtered
+    tag: str = None,
+    created_after: str = None,
+    created_before: str = None
+) -> list[NoteResponse]:
+    """List notes with optional filters"""
+    statement = select(Note)
+
+    if category:
+        statement = statement.where(Note.category == category)
+
+    if search:
+        search_lower = search.lower()
+        statement = statement.where(
+            or_(
+                col(Note.title).ilike(f"%{search_lower}%"),
+                col(Note.content).ilike(f"%{search_lower}%")
+            )
+        )
+
+    if tag:
+        statement = statement.join(Note.tags).where(Tag.name == tag.lower())
+
+    notes = session.exec(statement).all()
+
+    # Date filters applied after query
+    if created_after:
+        notes = [n for n in notes if n.created_at.isoformat() >= created_after]
+    if created_before:
+        notes = [n for n in notes if n.created_at.isoformat() <= created_before]
+
+    return [note_to_response(n) for n in notes]
 
 @app.get("/notes/{note_id}")
-def get_note(note_id: int):
+def get_note(note_id: int, session: SessionDep) -> NoteResponse:
     """Get a specific note by ID"""
-    notes_db, _ = load_notes()
-    for note in notes_db:
-        if note.id == note_id:
-            return note
-    
-    # Not found - raise 404 error
-    raise HTTPException(
-        status_code=404,
-        detail=f"Note with ID {note_id} not found"
-    )
-
+    note = session.get(Note, note_id)
+    if not note:
+        raise HTTPException(status_code=404, detail=f"Note with ID {note_id} not found")
+    return note_to_response(note)
 
 @app.put("/notes/{note_id}")
-def update_note(note_id: int, note_update: NoteCreate) -> Note:
-    """Update an existing note"""
-    
-    notes_db, _ = load_notes()
-    
-    # Find the note
-    for i, note in enumerate(notes_db):
-        if note.id == note_id:
-            # Update note (keep id and created_at)
-            updated_note = Note(
-                id=note.id,
-                title=note_update.title,
-                content=note_update.content,
-                category=note_update.category,
-                tags=note_update.tags,
-                created_at=note.created_at
-            )
-            
-            notes_db[i] = updated_note
-            save_notes(notes_db)
-            return updated_note
-    
-    # Not found
-    raise HTTPException(
-        status_code=404,
-        detail=f"Note with ID {note_id} not found"
-    )
+def update_note(note_id: int, note_update: NoteCreate, session: SessionDep) -> NoteResponse:
+    """Update an existing note (replace all fields)"""
+    note = session.get(Note, note_id)
+    if not note:
+        raise HTTPException(status_code=404, detail=f"Note with ID {note_id} not found")
+    note.title = note_update.title
+    note.content = note_update.content
+    note.category = note_update.category
+    note.tags = get_or_create_tags(session, note_update.tags)
+    session.add(note)
+    session.commit()
+    session.refresh(note)
+    return note_to_response(note)
 
-
+@app.patch("/notes/{note_id}")
+def partial_update_note(note_id: int, note_update: NoteUpdate, session: SessionDep) -> NoteResponse:
+    """Partially update a note (only provided fields)"""
+    note = session.get(Note, note_id)
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    if note_update.title is not None:
+        note.title = note_update.title
+    if note_update.content is not None:
+        note.content = note_update.content
+    if note_update.category is not None:
+        note.category = note_update.category
+    if note_update.tags is not None:
+        note.tags = get_or_create_tags(session, note_update.tags)
+    session.add(note)
+    session.commit()
+    session.refresh(note)
+    return note_to_response(note)
 
 @app.delete("/notes/{note_id}", status_code=204)
-def delete_note(note_id: int):
+def delete_note(note_id: int, session: SessionDep):
     """Delete a note"""
-    
-    notes_db, _ = load_notes()
-    
-    # Find and remove the note
-    for i, note in enumerate(notes_db):
-        if note.id == note_id:
-            notes_db.pop(i)
-            save_notes(notes_db)
-            return  # 204 No Content
-    
-    # Not found
-    raise HTTPException(
-        status_code=404,
-        detail=f"Note with ID {note_id} not found"
-    )
+    note = session.get(Note, note_id)
+    if not note:
+        raise HTTPException(status_code=404, detail=f"Note with ID {note_id} not found")
+    session.delete(note)
+    session.commit()
 
 
 
 @app.get("/tags")
-def list_tags() -> list[str]:
-    """Get all unique tags from all notes"""
-    
-    notes_db, _ = load_notes()
-    
-    # Collect all tags
-    all_tags = set()
-    for note in notes_db:
-        for tag in note.tags:
-            all_tags.add(tag)
-    
-    # Return sorted list
-    return sorted(list(all_tags))
-
-
-
+def list_tags(session: SessionDep) -> list[str]:
+    """Get all unique tags"""
+    tags = session.exec(select(Tag)).all()
+    return sorted([tag.name for tag in tags])
 
 @app.get("/tags/{tag_name}/notes")
-def get_notes_by_tag(tag_name: str) -> list[Note]:
+def get_notes_by_tag(tag_name: str, session: SessionDep) -> list[NoteResponse]:
     """Get all notes with a specific tag"""
-    
-    notes_db, _ = load_notes()
-    
-    # Filter notes by tag
-    filtered = []
-    for note in notes_db:
-        if tag_name in note.tags:
-            filtered.append(note)
-    
-    return filtered
+    tag = session.exec(select(Tag).where(Tag.name == tag_name.lower())).first()
+    if not tag:
+        return []
+    return [note_to_response(note) for note in tag.notes]
 
-@app.get("/notes")
-def list_notes(
-    category: str = None,
-    search: str = None,
-    tag: str = None
-):
-    notes_db, _ = load_notes()
 
-    filtered_notes = notes_db
-
-    if category:
-        filtered_notes = [n for n in filtered_notes if n.category == category]
-
-    if search:
-        filtered_notes = [
-            n for n in filtered_notes
-            if search.lower() in n.title.lower() or search.lower() in n.content.lower()
-        ]
-
-    if tag:
-        filtered_notes = [n for n in filtered_notes if tag in n.tags]
-
-    return filtered_notes
-
-from collections import Counter
-
-@app.get("/notes/stats")
-def get_note_stats():
-    notes_db, _ = load_notes()
-
-    total_notes = len(notes_db)
-
-    # Notes per category
-    category_counter = Counter(n.category for n in notes_db)
-
-    # Tags
-    all_tags = []
-    for n in notes_db:
-        all_tags.extend(n.tags)
-
-    tag_counter = Counter(all_tags)
-
-    top_tags = [
-        {"tag": tag, "count": count}
-        for tag, count in tag_counter.most_common(5)
-    ]
-
-    unique_tags_count = len(set(all_tags))
-
-    return {
-        "total_notes": total_notes,
-        "by_category": dict(category_counter),
-        "top_tags": top_tags,
-        "unique_tags_count": unique_tags_count
-    }
 @app.get("/categories")
-def list_categories() -> list[str]:
-    notes_db, _ = load_notes()
-
-    categories = {n.category for n in notes_db}
-
-    return sorted(categories)
+def list_categories(session: SessionDep) -> list[str]:
+    """Get all unique categories"""
+    notes = session.exec(select(Note)).all()
+    return sorted({n.category for n in notes})
 
 @app.get("/categories/{category_name}/notes")
-def get_notes_by_category(category_name: str) -> list[Note]:
-    notes_db, _ = load_notes()
+def get_notes_by_category(category_name: str, session: SessionDep) -> list[NoteResponse]:
+    """Get all notes in a specific category"""
+    notes = session.exec(select(Note).where(Note.category == category_name)).all()
+    return [note_to_response(n) for n in notes]
 
-    result = [n for n in notes_db if n.category == category_name]
-
-    return result
-
-
-
-from typing import Optional
-
-class NoteUpdate(BaseModel):
-    title: Optional[str] = None
-    content: Optional[str] = None
-    category: Optional[str] = None
-    tags: Optional[list[str]] = None
-
-
-@app.patch("/notes/{note_id}")
-def partial_update_note(note_id: int, note_update: NoteUpdate) -> Note:
-    notes_db, _ = load_notes()
-
-    for i, note in enumerate(notes_db):
-        if note.id == note_id:
-
-            if note_update.title is not None:
-                note.title = note_update.title
-
-            if note_update.content is not None:
-                note.content = note_update.content
-
-            if note_update.category is not None:
-                note.category = note_update.category
-
-            if note_update.tags is not None:
-                note.tags = note_update.tags
-
-            notes_db[i] = note
-            save_notes(notes_db)
-
-            return note
-
-    raise HTTPException(status_code=404, detail="Note not found")
