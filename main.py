@@ -266,3 +266,35 @@ def list_notes(
         filtered_notes = [n for n in filtered_notes if tag in n.tags]
 
     return filtered_notes
+
+from collections import Counter
+
+@app.get("/notes/stats")
+def get_note_stats():
+    notes_db, _ = load_notes()
+
+    total_notes = len(notes_db)
+
+    # Notes per category
+    category_counter = Counter(n.category for n in notes_db)
+
+    # Tags
+    all_tags = []
+    for n in notes_db:
+        all_tags.extend(n.tags)
+
+    tag_counter = Counter(all_tags)
+
+    top_tags = [
+        {"tag": tag, "count": count}
+        for tag, count in tag_counter.most_common(5)
+    ]
+
+    unique_tags_count = len(set(all_tags))
+
+    return {
+        "total_notes": total_notes,
+        "by_category": dict(category_counter),
+        "top_tags": top_tags,
+        "unique_tags_count": unique_tags_count
+    }
