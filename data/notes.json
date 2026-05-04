@@ -8,5 +8,27 @@
       "wrewer"
     ],
     "created_at": "2026-04-30T11:35:46.768817+00:00"
+  },
+  {
+    "id": 3,
+    "title": "meeting",
+    "content": "sprint planning",
+    "category": "work",
+    "tags": [
+      "team",
+      "urgent"
+    ],
+    "created_at": "2026-05-04T08:53:49.173648+00:00"
+  },
+  {
+    "id": 4,
+    "title": "idea",
+    "content": "build app",
+    "category": "work",
+    "tags": [
+      "dev",
+      "project"
+    ],
+    "created_at": "2026-05-04T08:54:48.630984+00:00"
   }
 ]

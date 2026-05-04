@@ -298,3 +298,18 @@ def get_note_stats():
         "top_tags": top_tags,
         "unique_tags_count": unique_tags_count
     }
+@app.get("/categories")
+def list_categories() -> list[str]:
+    notes_db, _ = load_notes()
+
+    categories = {n.category for n in notes_db}
+
+    return sorted(categories)
+
+@app.get("/categories/{category_name}/notes")
+def get_notes_by_category(category_name: str) -> list[Note]:
+    notes_db, _ = load_notes()
+
+    result = [n for n in notes_db if n.category == category_name]
+
+    return result
