@@ -98,12 +98,6 @@ class NoteCreate(BaseModel):
             cleaned.append(t)
         return cleaned
 
-    @model_validator(mode="after")
-    def work_notes_need_work_tag(self) -> Self:
-        if self.category == "work" and "work" not in self.tags:
-            raise ValueError("work notes must include the 'work' tag")
-        return self
-
 class NoteUpdate(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
@@ -260,11 +254,12 @@ def get_note_stats(session: SessionDep):
     notes = session.exec(select(Note)).all()
     all_tags = [tag.name for note in notes for tag in note.tags]
     tag_counter = Counter(all_tags)
+    tags = session.exec(select(Tag)).all()
     return {
         "total_notes": len(notes),
         "by_category": dict(Counter(n.category for n in notes)),
         "top_tags": [{"tag": t, "count": c} for t, c in tag_counter.most_common(5)],
-        "unique_tags_count": len(set(all_tags))
+        "unique_tags_count": len({tag.name for tag in tags})
     }
 
 @app.get("/notes")
@@ -273,8 +268,8 @@ def list_notes(
     category: str = None,
     search: str = None,
     tag: str = None,
-    created_after: str = None,
-    created_before: str = None
+    created_after: datetime | None = None,
+    created_before: datetime | None = None
 ) -> list[NoteResponse]:
     """List notes with optional filters"""
     statement = select(Note)
@@ -296,11 +291,14 @@ def list_notes(
 
     notes = session.exec(statement).all()
 
-    # Date filters applied after query
     if created_after:
-        notes = [n for n in notes if n.created_at.isoformat() >= created_after]
+        if created_after.tzinfo is not None:
+            created_after = created_after.astimezone(timezone.utc).replace(tzinfo=None)
+        notes = [n for n in notes if n.created_at >= created_after]
     if created_before:
-        notes = [n for n in notes if n.created_at.isoformat() <= created_before]
+        if created_before.tzinfo is not None:
+            created_before = created_before.astimezone(timezone.utc).replace(tzinfo=None)
+        notes = [n for n in notes if n.created_at <= created_before]
 
     return [note_to_response(n) for n in notes]
 
