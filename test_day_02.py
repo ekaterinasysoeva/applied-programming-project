@@ -32,7 +32,7 @@ def test_create_note_success():
     new_note = {
         "title": "Test Note",
         "content": "This is test content",
-        "category": "test"
+        "category": "personal"
     }
     
     response = client.post("/notes", json=new_note)
@@ -42,7 +42,7 @@ def test_create_note_success():
     data = response.json()
     assert data["title"] == "Test Note"
     assert data["content"] == "This is test content"
-    assert data["category"] == "test"
+    assert data["category"] == "personal"
 
 
 def test_create_note_missing_field():
@@ -50,7 +50,7 @@ def test_create_note_missing_field():
     # Try to create a note without content
     incomplete_note = {
         "title": "Incomplete",
-        "category": "test"
+        "category": "personal"
         # Missing "content" field!
     }
     
@@ -80,7 +80,7 @@ def test_get_all_notes_after_creating_one():
     client.post("/notes", json={
         "title": "List Test",
         "content": "Test content",
-        "category": "test"
+        "category": "personal"
     })
     
     # Get all notes
@@ -101,7 +101,7 @@ def test_get_note_by_id_success():
     create_response = client.post("/notes", json={
         "title": "Get by ID Test",
         "content": "Test content",
-        "category": "test"
+        "category": "personal"
     })
     note_id = create_response.json()["id"]
     
@@ -131,9 +131,9 @@ def test_get_notes_by_category():
     """Test filtering notes by category"""
     # Create notes in different categories
     client.post("/notes", json={
-        "title": "Study Note",
-        "content": "Study content",
-        "category": "study"
+        "title": "School Note",
+        "content": "School content",
+        "category": "school"
     })
     client.post("/notes", json={
         "title": "Work Note",
@@ -141,14 +141,14 @@ def test_get_notes_by_category():
         "category": "work"
     })
     
-    # Get only study notes
-    response = client.get("/notes/category/study")
+    # Get only school notes
+    response = client.get("/notes/category/school")
     
     assert response.status_code == 200
     data = response.json()
-    # All notes should be in study category
+    # All notes should be in school category
     for note in data:
-        assert note["category"] == "study"
+        assert note["category"] == "school"
 
 
 def test_get_notes_by_category_empty():

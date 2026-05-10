@@ -1,9 +1,10 @@
 from fastapi import FastAPI, HTTPException, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field as PydField, field_validator, model_validator, ConfigDict
 from sqlmodel import SQLModel, Field, Session, create_engine, Relationship, select, or_, col
 from datetime import datetime, timezone
 from collections import Counter
 from typing import Optional, Annotated
+from typing_extensions import Self
 
 
 class NoteTagLink(SQLModel, table=True):
@@ -32,6 +33,16 @@ class Tag(SQLModel, table=True):
 
     notes: list[Note] = Relationship(back_populates="tags", link_model=NoteTagLink)
 
+    @field_validator("name")
+    @classmethod
+    def validate_tag_name(cls, value: str) -> str:
+        value = value.strip().lower()
+        if len(value) < 2 or len(value) > 30:
+            raise ValueError("tag name must be 2-30 characters")
+        if not all(c.isalnum() or c == '-' for c in value):
+            raise ValueError("tag name must contain only lowercase letters, digits, or dashes")
+        return value
+
 
 
 engine = create_engine("sqlite:///notes.db")
@@ -44,29 +55,108 @@ def get_session():
 
 SessionDep = Annotated[Session, Depends(get_session)]
 
+ALLOWED_CATEGORIES = {"work", "personal", "school", "ideas", "general"}
+
 
 class NoteCreate(BaseModel):
-    title: str
-    content: str
-    category: str
-    tags: list[str] = []
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    title: str = PydField(min_length=3, max_length=100)
+    content: str = PydField(min_length=1, max_length=10000)
+    category: str = PydField(min_length=2, max_length=30)
+    tags: list[str] = PydField(default_factory=list, max_length=10)
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, value: str) -> str:
+        if not value or not value.strip():
+            raise ValueError("title cannot be empty or whitespace only")
+        return value
+
+    @field_validator("category")
+    @classmethod
+    def validate_category(cls, value: str) -> str:
+        value_lower = value.lower()
+        if value_lower not in ALLOWED_CATEGORIES:
+            raise ValueError(f"category must be one of {sorted(ALLOWED_CATEGORIES)}")
+        return value_lower
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, value: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for tag in value:
+            t = tag.strip().lower()
+            if not t:
+                raise ValueError("tags cannot be empty strings")
+            if len(t) < 2:
+                raise ValueError("each tag must be at least 2 characters")
+            if t in seen:
+                continue
+            seen.add(t)
+            cleaned.append(t)
+        return cleaned
+
+    @model_validator(mode="after")
+    def work_notes_need_work_tag(self) -> Self:
+        if self.category == "work" and "work" not in self.tags:
+            raise ValueError("work notes must include the 'work' tag")
+        return self
 
 class NoteUpdate(BaseModel):
-    title: Optional[str] = None
-    content: Optional[str] = None
-    category: Optional[str] = None
-    tags: Optional[list[str]] = None
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    title: str | None = PydField(default=None, min_length=3, max_length=100)
+    content: str | None = PydField(default=None, min_length=1, max_length=10000)
+    category: str | None = PydField(default=None, min_length=2, max_length=30)
+    tags: list[str] | None = PydField(default=None, max_length=10)
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("title cannot be empty or whitespace only")
+        return value
+
+    @field_validator("category")
+    @classmethod
+    def validate_category(cls, value: str | None) -> str | None:
+        if value is not None:
+            value_lower = value.lower()
+            if value_lower not in ALLOWED_CATEGORIES:
+                raise ValueError(f"category must be one of {sorted(ALLOWED_CATEGORIES)}")
+            return value_lower
+        return value
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for tag in value:
+            t = tag.strip().lower()
+            if not t:
+                raise ValueError("tags cannot be empty strings")
+            if len(t) < 2:
+                raise ValueError("each tag must be at least 2 characters")
+            if t in seen:
+                continue
+            seen.add(t)
+            cleaned.append(t)
+        return cleaned
 
 class NoteResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     title: str
     content: str
     category: str
     tags: list[str]
     created_at: str
-
-    class Config:
-        from_attributes = True
 
 
 
