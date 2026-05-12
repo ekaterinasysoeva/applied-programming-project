@@ -69,7 +69,6 @@ I had trouble with the first command line steps and a small typo stopped the ser
 #### 3. 💡 How did I overcome them?
 
 I checked the course slides and reran the commands carefully. After fixing the typo, the app started and the endpoints worked.
-
 ---
 
 ### Day 2
