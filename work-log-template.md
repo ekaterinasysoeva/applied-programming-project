@@ -179,7 +179,7 @@ I compared my implementation to the examples and fixed the failing cases one by 
 ### Day 7
 
 #### 1. ✅ What did I accomplish?
-
+Today I make my first Streamlit app , I learn how frontend can work with backend API, I used buttons, text input and session state, Also I connect app with API and show answer in browser, After this I start working on Notes API frontend.
 
 
 
@@ -188,7 +188,7 @@ I compared my implementation to the examples and fixed the failing cases one by 
 ---
 
 #### 2. 🚧 What challenges did I face?
-
+In beginning I had some problems because Streamlit was little confusing for me. I did not understand why page always rerun after every click and sometimes my text disappear after refresh. Also I had some problems with API request and sometimes I forget to start FastAPI before Streamlit. It was also difficult for me to understand session_state because I never work with something like this before.
 
 
 
@@ -197,8 +197,7 @@ I compared my implementation to the examples and fixed the failing cases one by 
 ---
 
 #### 3. 💡 How did I overcome them?
-
-
+I overcome this problems by reading the examples from class and checking documentation. I test many things step by step and try small changes to see what happen. I also open two terminals, one for FastAPI and one for Streamlit, and after this everything work better. When I start using session_state and forms correctly, my app become more stable and easier to use.
 
 
 
